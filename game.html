@@ -476,6 +476,16 @@ class Dungeon {
             }
         }
 
+        // Fallback: if boss room couldn't be placed, convert the last room
+        if (!this.bossPos && this.rooms.length > 0) {
+            const lastRoom = this.rooms[this.rooms.length - 1];
+            lastRoom.isBoss = true;
+            for (let y = lastRoom.y; y < lastRoom.y + lastRoom.h; y++)
+                for (let x = lastRoom.x; x < lastRoom.x + lastRoom.w; x++)
+                    this.tiles[y][x] = TILE.BOSS;
+            this.bossPos = { x: lastRoom.cx, y: lastRoom.cy };
+        }
+
         // Connect rooms
         for (let i = 1; i < this.rooms.length; i++) {
             const a = this.rooms[i - 1];
@@ -511,13 +521,18 @@ class Dungeon {
 
         // Set spawn (furthest from boss)
         let maxDist = 0;
-        for (const r of this.rooms) {
-            if (r.isBoss) continue;
-            const d = Math.hypot(r.cx - this.bossPos.x, r.cy - this.bossPos.y);
-            if (d > maxDist) {
-                maxDist = d;
-                this.spawn = { x: r.cx, y: r.cy };
+        const nonBoss = this.rooms.filter(r => !r.isBoss);
+        if (nonBoss.length > 0) {
+            for (const r of nonBoss) {
+                const d = Math.hypot(r.cx - this.bossPos.x, r.cy - this.bossPos.y);
+                if (d > maxDist) {
+                    maxDist = d;
+                    this.spawn = { x: r.cx, y: r.cy };
+                }
             }
+        } else {
+            // Fallback: spawn near boss room edge
+            this.spawn = { x: this.bossPos.x - 3, y: this.bossPos.y - 3 };
         }
         this.exit = { x: this.bossPos.x + 2, y: this.bossPos.y + 2 };
 
@@ -536,20 +551,23 @@ class Dungeon {
 
         // Item spawns
         const nonBossRooms = this.rooms.filter(r => !r.isBoss);
-        // Ammo (3-5)
-        for (let i = 0; i < 3 + Math.floor(Math.random() * 3); i++) {
-            const r = nonBossRooms[Math.floor(Math.random() * nonBossRooms.length)];
-            this.itemSpawns.push({ type: 'ammo', x: r.cx + Math.floor(Math.random() * 3) - 1, y: r.cy + Math.floor(Math.random() * 3) - 1, amount: 5 + Math.floor(Math.random() * 6) });
-        }
-        // Armor (0-2)
-        for (let i = 0; i < Math.floor(Math.random() * 3); i++) {
-            const r = nonBossRooms[Math.floor(Math.random() * nonBossRooms.length)];
-            this.itemSpawns.push({ type: 'armor', x: r.cx, y: r.cy, value: 1 + Math.floor(Math.random() * 3) });
-        }
-        // Buff orbs (1-2)
-        for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
-            const r = nonBossRooms[i % nonBossRooms.length];
-            this.itemSpawns.push({ type: 'buff', x: r.cx, y: r.cy });
+        const itemRooms = nonBossRooms.length > 0 ? nonBossRooms : this.rooms;
+        if (itemRooms.length > 0) {
+            // Ammo (3-5)
+            for (let i = 0; i < 3 + Math.floor(Math.random() * 3); i++) {
+                const r = itemRooms[Math.floor(Math.random() * itemRooms.length)];
+                this.itemSpawns.push({ type: 'ammo', x: r.cx + Math.floor(Math.random() * 3) - 1, y: r.cy + Math.floor(Math.random() * 3) - 1, amount: 5 + Math.floor(Math.random() * 6) });
+            }
+            // Armor (0-2)
+            for (let i = 0; i < Math.floor(Math.random() * 3); i++) {
+                const r = itemRooms[Math.floor(Math.random() * itemRooms.length)];
+                this.itemSpawns.push({ type: 'armor', x: r.cx, y: r.cy, value: 1 + Math.floor(Math.random() * 3) });
+            }
+            // Buff orbs (1-2)
+            for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
+                const r = itemRooms[i % itemRooms.length];
+                this.itemSpawns.push({ type: 'buff', x: r.cx, y: r.cy });
+            }
         }
 
         return this;
