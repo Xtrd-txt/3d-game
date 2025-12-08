@@ -81,11 +81,81 @@ const CONFIG = {
     fov: 90,
     shotgunPellets: 6,
     shotgunSpread: 0.15,
-    shotgunRange: 5,
+    shotgunRange: 6,
     meleeRange: 2,
     enemyMeleeRange: 1,
     enemyRangedRange: 5
 };
+
+// ========== AUDIO SFX SYSTEM ==========
+class SFX {
+    constructor() {
+        this.ctx = null;
+        this.enabled = true;
+        try {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch(e) {
+            this.enabled = false;
+        }
+    }
+
+    resume() {
+        if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    }
+
+    playNoise(duration, frequency, type = 'square', volume = 0.3) {
+        if (!this.enabled || !this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(frequency * 0.5, this.ctx.currentTime + duration);
+        gain.gain.setValueAtTime(volume, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    }
+
+    shoot() {
+        this.playNoise(0.15, 150, 'sawtooth', 0.4);
+        setTimeout(() => this.playNoise(0.1, 80, 'square', 0.2), 50);
+    }
+
+    punch() {
+        this.playNoise(0.1, 100, 'square', 0.3);
+        setTimeout(() => this.playNoise(0.08, 60, 'triangle', 0.2), 30);
+    }
+
+    hit() {
+        this.playNoise(0.08, 200, 'square', 0.25);
+    }
+
+    enemyDeath() {
+        this.playNoise(0.2, 80, 'sawtooth', 0.3);
+        setTimeout(() => this.playNoise(0.15, 40, 'square', 0.2), 100);
+    }
+
+    pickup() {
+        this.playNoise(0.1, 400, 'sine', 0.2);
+        setTimeout(() => this.playNoise(0.1, 600, 'sine', 0.2), 100);
+    }
+
+    portal() {
+        for (let i = 0; i < 5; i++) {
+            setTimeout(() => this.playNoise(0.1, 300 + i * 100, 'sine', 0.15), i * 50);
+        }
+    }
+
+    damage() {
+        this.playNoise(0.15, 100, 'sawtooth', 0.4);
+    }
+}
+
+const sfx = new SFX();
 
 // Color palette (green-black retro style)
 const COLORS = {
@@ -159,7 +229,7 @@ function createCeilingTexture() {
     });
 }
 
-// ========== SPRITE GENERATOR ==========
+// ========== SPRITE GENERATOR (Demon style based on reference) ==========
 function createEnemySprite(type) {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
@@ -168,75 +238,136 @@ function createEnemySprite(type) {
 
     ctx.imageSmoothingEnabled = false;
 
-    const colors = {
-        basic: { body: '#00ff00', eye: '#ff0000' },
-        fast: { body: '#00ffaa', eye: '#ffff00' },
-        tank: { body: '#008800', eye: '#ff0000' },
-        ranged: { body: '#00ff88', eye: '#ff00ff' },
-        boss: { body: '#ff0000', eye: '#ffff00' }
+    // Demon color palette (from reference: gray body, red wings, skull head, fire effects)
+    const drawDemon = (scale = 1, hasWings = true, hasFire = false, wingColor = '#8b0000') => {
+        const cx = 32, cy = 32;
+
+        // Wings (red, bat-like)
+        if (hasWings) {
+            ctx.fillStyle = wingColor;
+            // Left wing
+            ctx.beginPath();
+            ctx.moveTo(cx - 8 * scale, cy - 5 * scale);
+            ctx.lineTo(cx - 28 * scale, cy - 15 * scale);
+            ctx.lineTo(cx - 25 * scale, cy);
+            ctx.lineTo(cx - 20 * scale, cy + 5 * scale);
+            ctx.lineTo(cx - 8 * scale, cy + 5 * scale);
+            ctx.fill();
+            // Right wing
+            ctx.beginPath();
+            ctx.moveTo(cx + 8 * scale, cy - 5 * scale);
+            ctx.lineTo(cx + 28 * scale, cy - 15 * scale);
+            ctx.lineTo(cx + 25 * scale, cy);
+            ctx.lineTo(cx + 20 * scale, cy + 5 * scale);
+            ctx.lineTo(cx + 8 * scale, cy + 5 * scale);
+            ctx.fill();
+            // Wing details
+            ctx.fillStyle = '#4a0000';
+            ctx.fillRect(cx - 22 * scale, cy - 10 * scale, 2, 12 * scale);
+            ctx.fillRect(cx + 20 * scale, cy - 10 * scale, 2, 12 * scale);
+        }
+
+        // Body (dark gray/charcoal)
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(cx - 8 * scale, cy - 10 * scale, 16 * scale, 28 * scale);
+
+        // Arms
+        ctx.fillStyle = '#333';
+        ctx.fillRect(cx - 14 * scale, cy - 5 * scale, 6 * scale, 18 * scale);
+        ctx.fillRect(cx + 8 * scale, cy - 5 * scale, 6 * scale, 18 * scale);
+
+        // Claws (orange fire-like)
+        ctx.fillStyle = '#ff6600';
+        ctx.fillRect(cx - 14 * scale, cy + 12 * scale, 3, 4);
+        ctx.fillRect(cx + 11 * scale, cy + 12 * scale, 3, 4);
+
+        // Head (skull-like, pale)
+        ctx.fillStyle = '#d0c8b8';
+        ctx.fillRect(cx - 6 * scale, cy - 20 * scale, 12 * scale, 12 * scale);
+
+        // Horns
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath();
+        ctx.moveTo(cx - 6 * scale, cy - 18 * scale);
+        ctx.lineTo(cx - 10 * scale, cy - 28 * scale);
+        ctx.lineTo(cx - 3 * scale, cy - 20 * scale);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(cx + 6 * scale, cy - 18 * scale);
+        ctx.lineTo(cx + 10 * scale, cy - 28 * scale);
+        ctx.lineTo(cx + 3 * scale, cy - 20 * scale);
+        ctx.fill();
+
+        // Eyes (glowing)
+        ctx.fillStyle = '#ff4400';
+        ctx.fillRect(cx - 4 * scale, cy - 17 * scale, 3, 3);
+        ctx.fillRect(cx + 1 * scale, cy - 17 * scale, 3, 3);
+
+        // Fire effect (for fire demons)
+        if (hasFire) {
+            ctx.fillStyle = '#ff8800';
+            for (let i = 0; i < 5; i++) {
+                const fx = cx - 8 + Math.random() * 16;
+                const fy = cy + 15 + Math.random() * 8;
+                ctx.fillRect(fx, fy, 3, 5);
+            }
+            ctx.fillStyle = '#ffaa00';
+            for (let i = 0; i < 3; i++) {
+                const fx = cx - 6 + Math.random() * 12;
+                const fy = cy + 18 + Math.random() * 6;
+                ctx.fillRect(fx, fy, 2, 3);
+            }
+        }
     };
 
-    const c = colors[type] || colors.basic;
-
     if (type === 'boss') {
-        // Big demon boss
-        ctx.fillStyle = c.body;
-        ctx.fillRect(16, 8, 32, 48); // Body
-        ctx.fillRect(8, 16, 8, 32); // Left arm
-        ctx.fillRect(48, 16, 8, 32); // Right arm
-        ctx.fillStyle = '#aa0000';
-        ctx.fillRect(20, 0, 8, 12); // Left horn
-        ctx.fillRect(36, 0, 8, 12); // Right horn
-        ctx.fillStyle = c.eye;
-        ctx.fillRect(22, 18, 6, 6); // Left eye
-        ctx.fillRect(36, 18, 6, 6); // Right eye
-        ctx.fillStyle = '#000';
-        ctx.fillRect(24, 20, 2, 2);
-        ctx.fillRect(38, 20, 2, 2);
-        ctx.fillStyle = '#880000';
-        ctx.fillRect(26, 32, 12, 8); // Mouth
+        // Large demon boss with fire
+        drawDemon(1.2, true, true, '#990000');
+        // Extra details for boss
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(26, 38, 12, 4); // Glowing chest
     } else if (type === 'tank') {
-        // Heavy armored
-        ctx.fillStyle = c.body;
-        ctx.fillRect(12, 12, 40, 44);
-        ctx.fillStyle = '#004400';
-        ctx.fillRect(16, 16, 32, 20); // Armor
-        ctx.fillStyle = c.eye;
-        ctx.fillRect(22, 22, 6, 4);
-        ctx.fillRect(36, 22, 6, 4);
+        // Heavy armored demon - no wings, bulkier
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(14, 16, 36, 40); // Heavy body
+        ctx.fillStyle = '#333';
+        ctx.fillRect(18, 20, 28, 32); // Armor plate
+        ctx.fillStyle = '#d0c8b8';
+        ctx.fillRect(24, 8, 16, 14); // Head
+        ctx.fillStyle = '#ff4400';
+        ctx.fillRect(27, 12, 4, 4);
+        ctx.fillRect(33, 12, 4, 4);
+        ctx.fillStyle = '#1a1a1a';
+        // Horns
+        ctx.fillRect(22, 2, 4, 10);
+        ctx.fillRect(38, 2, 4, 10);
     } else if (type === 'fast') {
-        // Thin fast enemy
-        ctx.fillStyle = c.body;
-        ctx.fillRect(24, 8, 16, 48);
-        ctx.fillRect(16, 24, 8, 16);
-        ctx.fillRect(40, 24, 8, 16);
-        ctx.fillStyle = c.eye;
-        ctx.fillRect(26, 14, 4, 4);
-        ctx.fillRect(34, 14, 4, 4);
+        // Thin fast demon - smaller, quick
+        drawDemon(0.7, true, false, '#aa2222');
     } else if (type === 'ranged') {
-        // Floating eye type
-        ctx.fillStyle = c.body;
+        // Floating fire demon
+        ctx.fillStyle = '#ff6600';
         ctx.beginPath();
-        ctx.arc(32, 32, 20, 0, Math.PI * 2);
+        ctx.arc(32, 28, 16, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = c.eye;
-        ctx.fillRect(24, 26, 16, 12);
+        ctx.fillStyle = '#ffaa00';
+        ctx.beginPath();
+        ctx.arc(32, 28, 10, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = '#000';
-        ctx.fillRect(30, 30, 4, 4);
+        ctx.fillRect(26, 24, 5, 6);
+        ctx.fillRect(33, 24, 5, 6);
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(27, 25, 3, 4);
+        ctx.fillRect(34, 25, 3, 4);
+        // Fire trail
+        ctx.fillStyle = '#ff4400';
+        for (let i = 0; i < 4; i++) {
+            ctx.fillRect(26 + i * 4, 44 + Math.random() * 4, 3, 8);
+        }
     } else {
-        // Basic zombie
-        ctx.fillStyle = c.body;
-        ctx.fillRect(20, 8, 24, 48);
-        ctx.fillRect(12, 20, 8, 24);
-        ctx.fillRect(44, 20, 8, 24);
-        ctx.fillStyle = c.eye;
-        ctx.fillRect(24, 16, 5, 5);
-        ctx.fillRect(35, 16, 5, 5);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(26, 18, 2, 2);
-        ctx.fillRect(37, 18, 2, 2);
-        ctx.fillStyle = '#008800';
-        ctx.fillRect(28, 28, 8, 4); // Mouth
+        // Basic demon
+        drawDemon(0.9, true, false, '#8b0000');
     }
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -294,7 +425,7 @@ function createItemSprite(type) {
     return texture;
 }
 
-// ========== WEAPON RENDERER ==========
+// ========== WEAPON RENDERER (Realistic style based on reference images) ==========
 class WeaponRenderer {
     constructor() {
         this.canvas = document.getElementById('weapon-view');
@@ -342,6 +473,120 @@ class WeaponRenderer {
         }
     }
 
+    drawFist(ctx, x, y, scale = 1) {
+        // Realistic skin-colored fist based on reference image
+        const s = scale;
+
+        // Wrist/forearm (with hair texture)
+        ctx.fillStyle = '#c4a882';
+        ctx.fillRect(x - 15 * s, y + 20 * s, 70 * s, 50 * s);
+
+        // Hair details on arm
+        ctx.fillStyle = '#5a4a3a';
+        for (let i = 0; i < 20; i++) {
+            const hx = x - 10 * s + Math.random() * 60 * s;
+            const hy = y + 25 * s + Math.random() * 40 * s;
+            ctx.fillRect(hx, hy, 1, 3 * s);
+        }
+
+        // Main fist (knuckles facing forward)
+        ctx.fillStyle = '#d4b896';
+        ctx.fillRect(x, y - 10 * s, 50 * s, 35 * s);
+
+        // Knuckle bumps
+        ctx.fillStyle = '#e8cca8';
+        ctx.fillRect(x + 5 * s, y - 8 * s, 10 * s, 8 * s);
+        ctx.fillRect(x + 18 * s, y - 10 * s, 10 * s, 10 * s);
+        ctx.fillRect(x + 31 * s, y - 8 * s, 10 * s, 8 * s);
+
+        // Knuckle shadows
+        ctx.fillStyle = '#b89870';
+        ctx.fillRect(x + 5 * s, y + 2 * s, 40 * s, 3 * s);
+
+        // Thumb
+        ctx.fillStyle = '#d4b896';
+        ctx.fillRect(x + 45 * s, y + 5 * s, 15 * s, 25 * s);
+        ctx.fillStyle = '#c4a882';
+        ctx.fillRect(x + 55 * s, y + 8 * s, 8 * s, 18 * s);
+
+        // Finger creases
+        ctx.fillStyle = '#a08060';
+        ctx.fillRect(x + 14 * s, y - 5 * s, 1, 20 * s);
+        ctx.fillRect(x + 27 * s, y - 5 * s, 1, 20 * s);
+        ctx.fillRect(x + 40 * s, y - 5 * s, 1, 20 * s);
+    }
+
+    drawShotgun(ctx, x, y, scale = 1) {
+        // Realistic dark textured shotgun based on reference image
+        const s = scale;
+
+        // Main barrel (dark gray with texture)
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(x + 15 * s, y - 80 * s, 20 * s, 100 * s);
+
+        // Barrel texture (stippled metal)
+        ctx.fillStyle = '#3a3a3a';
+        for (let i = 0; i < 40; i++) {
+            const tx = x + 16 * s + Math.random() * 18 * s;
+            const ty = y - 75 * s + Math.random() * 90 * s;
+            ctx.fillRect(tx, ty, 2, 2);
+        }
+        ctx.fillStyle = '#1a1a1a';
+        for (let i = 0; i < 20; i++) {
+            const tx = x + 16 * s + Math.random() * 18 * s;
+            const ty = y - 75 * s + Math.random() * 90 * s;
+            ctx.fillRect(tx, ty, 1, 1);
+        }
+
+        // Secondary barrel (double barrel)
+        ctx.fillStyle = '#252525';
+        ctx.fillRect(x + 38 * s, y - 75 * s, 18 * s, 95 * s);
+        ctx.fillStyle = '#333';
+        for (let i = 0; i < 30; i++) {
+            const tx = x + 39 * s + Math.random() * 16 * s;
+            const ty = y - 70 * s + Math.random() * 85 * s;
+            ctx.fillRect(tx, ty, 2, 2);
+        }
+
+        // Barrel openings
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(x + 18 * s, y - 82 * s, 14 * s, 4 * s);
+        ctx.fillRect(x + 40 * s, y - 80 * s, 14 * s, 4 * s);
+
+        // Receiver (body)
+        ctx.fillStyle = '#1f1f1f';
+        ctx.fillRect(x, y + 15 * s, 70 * s, 35 * s);
+
+        // Receiver texture
+        ctx.fillStyle = '#2d2d2d';
+        for (let i = 0; i < 25; i++) {
+            const tx = x + 5 * s + Math.random() * 60 * s;
+            const ty = y + 18 * s + Math.random() * 28 * s;
+            ctx.fillRect(tx, ty, 3, 3);
+        }
+
+        // Grip/stock
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x + 10 * s, y + 50 * s, 50 * s, 45 * s);
+
+        // Grip texture (stippled)
+        ctx.fillStyle = '#252525';
+        for (let i = 0; i < 30; i++) {
+            const tx = x + 15 * s + Math.random() * 40 * s;
+            const ty = y + 55 * s + Math.random() * 35 * s;
+            ctx.fillRect(tx, ty, 2, 2);
+        }
+
+        // Metal highlights
+        ctx.fillStyle = '#444';
+        ctx.fillRect(x + 20 * s, y - 60 * s, 2 * s, 50 * s);
+        ctx.fillRect(x + 50 * s, y - 55 * s, 2 * s, 45 * s);
+
+        // Trigger guard
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x + 25 * s, y + 35 * s, 20 * s, 5 * s);
+    }
+
     render(showFist = false) {
         const ctx = this.ctx;
         const w = 320, h = 200;
@@ -351,46 +596,31 @@ class WeaponRenderer {
         const bobY = this.offsetY + this.recoil * 20;
 
         if (showFist || this.swinging) {
-            // Draw fist (left side) - green pixelated
-            const fistX = 40 + bobX + (this.swinging ? Math.sin(this.swingFrame * 2) * 40 : 0);
-            const fistY = h - 80 + bobY - (this.swinging ? Math.abs(Math.sin(this.swingFrame * 2)) * 30 : 0);
-
-            ctx.fillStyle = '#00aa00';
-            ctx.fillRect(fistX, fistY, 40, 50);
-            ctx.fillStyle = '#008800';
-            ctx.fillRect(fistX + 5, fistY + 5, 30, 15);
-            ctx.fillRect(fistX + 5, fistY + 22, 30, 8);
-            ctx.fillRect(fistX + 5, fistY + 32, 30, 8);
-            ctx.fillRect(fistX + 5, fistY + 42, 30, 8);
-            ctx.fillStyle = '#006600';
-            ctx.fillRect(fistX, fistY + 50, 40, 10);
+            // Draw fist (left side)
+            const fistX = 20 + bobX + (this.swinging ? Math.sin(this.swingFrame * 2) * 50 : 0);
+            const fistY = h - 70 + bobY - (this.swinging ? Math.abs(Math.sin(this.swingFrame * 2)) * 40 : 0);
+            this.drawFist(ctx, fistX, fistY, 1.2);
         }
 
-        // Draw shotgun (right side) - green pixelated style
-        const gunX = w - 120 + bobX;
-        const gunY = h - 100 + bobY;
-
-        // Barrel
-        ctx.fillStyle = '#00aa00';
-        ctx.fillRect(gunX + 20, gunY - 40, 12, 60);
-        ctx.fillRect(gunX + 34, gunY - 40, 12, 60);
-
-        // Body
-        ctx.fillStyle = '#008800';
-        ctx.fillRect(gunX, gunY + 20, 80, 30);
-        ctx.fillRect(gunX + 10, gunY + 50, 60, 40);
-
-        // Details
-        ctx.fillStyle = '#006600';
-        ctx.fillRect(gunX + 15, gunY + 25, 50, 5);
-        ctx.fillRect(gunX + 20, gunY + 55, 40, 10);
+        // Draw shotgun (right side)
+        const gunX = w - 100 + bobX;
+        const gunY = h - 80 + bobY;
+        this.drawShotgun(ctx, gunX, gunY, 1);
 
         // Muzzle flash when shooting
         if (this.recoil > 0.5) {
             ctx.fillStyle = '#ffff00';
-            ctx.fillRect(gunX + 18, gunY - 60, 20, 20);
+            ctx.beginPath();
+            ctx.arc(gunX + 35, gunY - 90, 15, 0, Math.PI * 2);
+            ctx.fill();
             ctx.fillStyle = '#ff8800';
-            ctx.fillRect(gunX + 22, gunY - 55, 12, 12);
+            ctx.beginPath();
+            ctx.arc(gunX + 35, gunY - 90, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(gunX + 35, gunY - 90, 4, 0, Math.PI * 2);
+            ctx.fill();
         }
     }
 
@@ -534,7 +764,8 @@ class Dungeon {
             // Fallback: spawn near boss room edge
             this.spawn = { x: this.bossPos.x - 3, y: this.bossPos.y - 3 };
         }
-        this.exit = { x: this.bossPos.x + 2, y: this.bossPos.y + 2 };
+        // Portal spawns at boss position (center of boss room) for reliable placement
+        this.exit = { x: this.bossPos.x, y: this.bossPos.y };
 
         // Enemy spawns
         for (const r of this.rooms) {
@@ -694,6 +925,7 @@ class Game {
 
     start() {
         document.getElementById('start-screen').style.display = 'none';
+        sfx.resume(); // Enable audio
         this.init();
         this.level = 1;
         this.kills = 0;
@@ -930,6 +1162,7 @@ class Game {
             p.lastShot = now;
             p.ammo--;
             this.weapon.shoot();
+            sfx.shoot();
 
             // Fire pellets
             const origin = p.pos.clone();
@@ -963,6 +1196,7 @@ class Game {
         if (this.mouse.right && now - p.lastMelee >= 0.5) {
             p.lastMelee = now;
             this.weapon.punch();
+            sfx.punch();
             this.mouse.right = false;
 
             const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
@@ -1081,10 +1315,13 @@ class Game {
         if (instakill) e.hp = 0;
         else e.hp -= dmg;
 
+        sfx.hit();
+
         if (e.hp <= 0) {
             e.alive = false;
             this.scene.remove(e.sprite);
             this.kills++;
+            sfx.enemyDeath();
         }
     }
 
@@ -1152,10 +1389,15 @@ class Game {
             // Bob animation
             it.sprite.position.y = 0.7 + Math.sin(performance.now() / 500 + i) * 0.1;
 
-            // Collection check
-            if (this.player.pos.distanceTo(it.pos) < 1.5) {
+            // Collection check - use 2D horizontal distance (ignore Y)
+            const dx = this.player.pos.x - it.pos.x;
+            const dz = this.player.pos.z - it.pos.z;
+            const dist2D = Math.sqrt(dx * dx + dz * dz);
+
+            if (dist2D < 2.0) {
                 if (it.type === 'portal') {
                     if (this.bossDefeated) {
+                        sfx.portal();
                         this.level++;
                         this.generateLevel();
                     }
@@ -1172,6 +1414,7 @@ class Game {
 
     collectItem(it) {
         const p = this.player;
+        sfx.pickup();
 
         if (it.type === 'ammo') {
             p.ammo = Math.min(p.ammo + (it.data.amount || 10), p.maxAmmo);
@@ -1229,6 +1472,7 @@ class Game {
 
         if (dmg > 0) {
             p.hp -= dmg;
+            sfx.damage();
             document.getElementById('damage-flash').style.opacity = '1';
             setTimeout(() => document.getElementById('damage-flash').style.opacity = '0', 100);
         }
